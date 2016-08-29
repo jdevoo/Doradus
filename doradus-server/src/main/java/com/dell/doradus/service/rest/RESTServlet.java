@@ -302,7 +302,9 @@ public class RESTServlet extends HttpServlet {
         if (Utils.isEmpty(query)) {
             return "";
         }
-        StringBuilder buffer = new StringBuilder(query);
+        
+        // remove JQuery cache buster from query string
+        StringBuilder buffer = new StringBuilder(query.replaceAll("&_(\\=[^&]*)?(?=&|$)|^_(\\=[^&]*)?(&|$)", ""));
         
         // Split query component into decoded, &-separate components.
         String[] parts = Utils.splitURIQuery(buffer.toString());

@@ -27,8 +27,11 @@ import org.eclipse.jetty.server.Server;
 import org.eclipse.jetty.server.ServerConnector;
 import org.eclipse.jetty.server.SslConnectionFactory;
 import org.eclipse.jetty.servlet.ServletHandler;
+import org.eclipse.jetty.servlet.FilterHolder;
+import org.eclipse.jetty.servlet.FilterMapping;
 import org.eclipse.jetty.util.ssl.SslContextFactory;
 import org.eclipse.jetty.util.thread.QueuedThreadPool;
+import org.eclipse.jetty.servlets.CrossOriginFilter;
 
 import com.dell.doradus.service.rest.RESTService;
 import com.dell.doradus.service.rest.RESTService.RequestCallback;
@@ -41,10 +44,10 @@ import com.dell.doradus.service.rest.WebServer;
  */
 public class JettyWebServer extends WebServer{
 	
-    private Server  m_jettyServer;
+    private Server m_jettyServer;
     private static final int SOCKET_TIMEOUT_MILLIS = 60 * 1000 * 5;  // 5 minutes
     
-	private static final JettyWebServer INSTANCE = new JettyWebServer();
+    private static final JettyWebServer INSTANCE = new JettyWebServer();
 	   
     // Although it is unlike new RequestCallbacks will be added after initialization, we use
     // a ConcurrentLinkedQueue so we don't have to serialize onXxx requests.
@@ -64,6 +67,7 @@ public class JettyWebServer extends WebServer{
     private final String    m_truststorepassword;
     private final boolean   m_clientauthentication;
     private final String[]  m_tls_cipher_suites;
+    private final String    m_cors_allowed_origins;
 
     private JettyWebServer() {
         RESTService restService = RESTService.instance();
@@ -85,6 +89,7 @@ public class JettyWebServer extends WebServer{
         } else {
             m_tls_cipher_suites = cipherList.toArray(new String[cipherList.size()]);
         }
+        m_cors_allowed_origins = restService.getParamString("cors_allowed_origins");
     }
     
     // Private Connection.Listener used to invoke connection opens and closes. Registered
@@ -123,9 +128,16 @@ public class JettyWebServer extends WebServer{
         // Connector
         ServerConnector connector = configureConnector();
         m_jettyServer.addConnector(connector);
-        
+       
         // Handler
         ServletHandler handler = configureHandler(servletClassName);
+        if (m_cors_allowed_origins != null) {
+            FilterHolder filter = new FilterHolder(CrossOriginFilter.class);
+            filter.setInitParameter("allowedOrigins", m_cors_allowed_origins);
+            filter.setInitParameter("allowedMethods", "GET,POST,PUT,DELETE,OPTIONS");
+            FilterMapping filterMapping = createFilterMapping("/*", filter);
+            handler.addFilter(filter, filterMapping);
+        }
         m_jettyServer.setHandler(handler);
     }   
 
@@ -187,7 +199,15 @@ public class JettyWebServer extends WebServer{
         handler.addServletWithMapping(servletClassName, "/*");
         return handler;
     }   // configureHandler
-    
+   
+    // Create FilterMapping object from path.
+    private FilterMapping createFilterMapping(String pathSpec, FilterHolder filterHolder) {
+        FilterMapping filterMapping = new FilterMapping();
+        filterMapping.setPathSpec(pathSpec);
+        filterMapping.setFilterName(filterHolder.getName());
+        return filterMapping;
+    }
+
     // Create a Jetty ServerConnector configured to use TLS/SSL.
     private ServerConnector createSSLConnector() {
         SslContextFactory sslContextFactory = new SslContextFactory();
@@ -223,7 +243,7 @@ public class JettyWebServer extends WebServer{
 
 	@Override
 	public void notifyRequestSuccess(long startTimeNanos) {
-      for (RequestCallback callback : m_requestCallbacks) {
+        for (RequestCallback callback : m_requestCallbacks) {
             callback.onRequestSucceeded(startTimeNanos);
         }		
 	}
